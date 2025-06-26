@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: gromacs-postgres
+    environment:
+      POSTGRES_DB: gromacs_gui
+      POSTGRES_USER: gromacs_user
+      POSTGRES_PASSWORD: gromacs_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - gromacs-network
+
+  # Redis for Celery
+  redis:
+    image: redis:7-alpine
+    container_name: gromacs-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - gromacs-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gromacs-backend
+    environment:
+      - DATABASE_URL=postgresql://gromacs_user:gromacs_password@postgres:5432/gromacs_gui
+      - REDIS_URL=redis://redis:6379
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+    volumes:
+      - ./data/uploads:/app/uploads
+      - ./data/projects:/app/projects
+      - ./data/logs:/app/logs
+      - /usr/local/gromacs:/usr/local/gromacs  # Mount GROMACS installation
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - gromacs-network
+    restart: unless-stopped
+
+  # Celery Worker for background tasks
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gromacs-celery
+    command: celery -A app.main.celery worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://gromacs_user:gromacs_password@postgres:5432/gromacs_gui
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./data/uploads:/app/uploads
+      - ./data/projects:/app/projects
+      - ./data/logs:/app/logs
+      - /usr/local/gromacs:/usr/local/gromacs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - gromacs-network
+    restart: unless-stopped
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gromacs-frontend
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - gromacs-network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy (Production)
+  nginx:
+    image: nginx:alpine
+    container_name: gromacs-nginx
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - gromacs-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  gromacs-network:
+    driver: bridge
