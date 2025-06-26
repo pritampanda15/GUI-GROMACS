@@ -4,8 +4,26 @@ import './index.css';
 interface Project {
   id: string;
   name: string;
-  status: 'created' | 'running' | 'completed' | 'failed';
+  status: 'created' | 'configured' | 'running' | 'completed' | 'failed';
   created: string;
+  files: ProjectFile[];
+  forcefield?: string;
+  config?: SimulationConfig;
+}
+
+interface ProjectFile {
+  name: string;
+  type: string;
+  size: number;
+  uploadedAt: string;
+}
+
+interface SimulationConfig {
+  temperature: number;
+  pressure: number;
+  timeStep: number;
+  totalTime: number;
+  forcefield: string;
 }
 
 interface ApiStatus {
@@ -13,19 +31,43 @@ interface ApiStatus {
   message: string;
 }
 
+type CurrentView = 'dashboard' | 'upload' | 'configure' | 'simulation' | 'analysis';
+
+const FORCEFIELDS = [
+  { id: 'amber99sb-ildn', name: 'AMBER99SB-ILDN', description: 'Protein force field with improved dihedral parameters' },
+  { id: 'charmm36-jul2022', name: 'CHARMM36', description: 'Latest CHARMM36 all-atom force field' },
+  { id: 'gromos54a7', name: 'GROMOS 54A7', description: 'United-atom force field' },
+  { id: 'oplsaa', name: 'OPLS-AA', description: 'All-atom optimized potentials for liquid simulations' },
+];
+
 function App() {
+  const [currentView, setCurrentView] = useState<CurrentView>('dashboard');
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([
     { 
       id: '1', 
       name: 'Example Protein Study', 
       status: 'completed',
-      created: new Date().toISOString().split('T')[0]
+      created: '2025-06-26',
+      files: [
+        { name: 'protein.pdb', type: '.pdb', size: 125000, uploadedAt: '2025-06-26' },
+        { name: 'topology.top', type: '.top', size: 15000, uploadedAt: '2025-06-26' }
+      ],
+      forcefield: 'amber99sb-ildn',
+      config: {
+        temperature: 300,
+        pressure: 1.0,
+        timeStep: 0.002,
+        totalTime: 10,
+        forcefield: 'amber99sb-ildn'
+      }
     },
     { 
       id: '2', 
       name: 'Ligand Binding Analysis', 
       status: 'created',
-      created: new Date().toISOString().split('T')[0]
+      created: '2025-06-26',
+      files: []
     }
   ]);
 
@@ -76,32 +118,601 @@ function App() {
       id: Date.now().toString(),
       name: `Project ${projects.length + 1}`,
       status: 'created',
-      created: new Date().toISOString().split('T')[0]
+      created: new Date().toISOString().split('T')[0],
+      files: []
     };
     setProjects([newProject, ...projects]);
+    setSelectedProject(newProject.id);
+    setCurrentView('upload');
   };
 
   const deleteProject = (id: string) => {
     if (window.confirm('Are you sure you want to delete this project?')) {
       setProjects(projects.filter(p => p.id !== id));
+      if (selectedProject === id) {
+        setSelectedProject(null);
+        setCurrentView('dashboard');
+      }
     }
   };
 
-  const simulateRun = (id: string) => {
+  const selectProject = (id: string) => {
+    setSelectedProject(id);
+    const project = projects.find(p => p.id === id);
+    if (project) {
+      if (project.files.length === 0) {
+        setCurrentView('upload');
+      } else if (!project.forcefield) {
+        setCurrentView('configure');
+      } else {
+        setCurrentView('simulation');
+      }
+    }
+  };
+
+  const simulateFileUpload = (projectId: string, fileName: string, fileType: string) => {
+    const newFile: ProjectFile = {
+      name: fileName,
+      type: fileType,
+      size: Math.floor(Math.random() * 100000) + 10000,
+      uploadedAt: new Date().toISOString().split('T')[0]
+    };
+
     setProjects(projects.map(p => 
-      p.id === id ? { ...p, status: 'running' as const } : p
+      p.id === projectId 
+        ? { ...p, files: [...p.files, newFile] }
+        : p
+    ));
+  };
+
+  const updateProjectForcefield = (projectId: string, forcefield: string) => {
+    setProjects(projects.map(p => 
+      p.id === projectId 
+        ? { ...p, forcefield, status: 'configured' as const }
+        : p
+    ));
+  };
+
+  const startSimulation = (projectId: string) => {
+    setProjects(projects.map(p => 
+      p.id === projectId 
+        ? { ...p, status: 'running' as const }
+        : p
     ));
     
-    // Simulate completion after 3 seconds
+    // Simulate completion after 5 seconds
     setTimeout(() => {
       setProjects(prev => prev.map(p => 
-        p.id === id ? { ...p, status: 'completed' as const } : p
+        p.id === projectId 
+          ? { ...p, status: 'completed' as const }
+          : p
       ));
-    }, 3000);
+    }, 5000);
   };
 
   const getStatsCount = (status: string) => {
     return projects.filter(p => p.status === status).length;
+  };
+
+  const getCurrentProject = () => {
+    return selectedProject ? projects.find(p => p.id === selectedProject) : null;
+  };
+
+  const renderNavigation = () => (
+    <nav className="navigation">
+      <div className="nav-items">
+        <button 
+          className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`}
+          onClick={() => setCurrentView('dashboard')}
+        >
+          📊 Dashboard
+        </button>
+        {selectedProject && (
+          <>
+            <button 
+              className={`nav-item ${currentView === 'upload' ? 'active' : ''}`}
+              onClick={() => setCurrentView('upload')}
+            >
+              📁 File Upload
+            </button>
+            <button 
+              className={`nav-item ${currentView === 'configure' ? 'active' : ''}`}
+              onClick={() => setCurrentView('configure')}
+            >
+              ⚙️ Configure
+            </button>
+            <button 
+              className={`nav-item ${currentView === 'simulation' ? 'active' : ''}`}
+              onClick={() => setCurrentView('simulation')}
+            >
+              ▶️ Simulation
+            </button>
+            <button 
+              className={`nav-item ${currentView === 'analysis' ? 'active' : ''}`}
+              onClick={() => setCurrentView('analysis')}
+            >
+              📈 Analysis
+            </button>
+          </>
+        )}
+      </div>
+      {selectedProject && (
+        <div className="current-project">
+          Current: {getCurrentProject()?.name}
+        </div>
+      )}
+    </nav>
+  );
+
+  const renderDashboard = () => (
+    <div>
+      {/* Welcome Section */}
+      <div className="text-center mb-4">
+        <h2 className="text-2xl font-bold mb-2">
+          Molecular Dynamics Simulation Platform
+        </h2>
+        <p className="text-lg" style={{ color: '#64748b' }}>
+          A modern web interface for GROMACS simulations
+        </p>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="card-grid">
+        <div className="card text-center">
+          <div className="text-2xl font-bold" style={{ color: '#3b82f6' }}>
+            {projects.length}
+          </div>
+          <div>Total Projects</div>
+        </div>
+        <div className="card text-center">
+          <div className="text-2xl font-bold" style={{ color: '#10b981' }}>
+            {getStatsCount('completed')}
+          </div>
+          <div>Completed</div>
+        </div>
+        <div className="card text-center">
+          <div className="text-2xl font-bold" style={{ color: '#f59e0b' }}>
+            {getStatsCount('running')}
+          </div>
+          <div>Running</div>
+        </div>
+        <div className="card text-center">
+          <div className="text-2xl font-bold" style={{ color: '#6b7280' }}>
+            {getStatsCount('created')}
+          </div>
+          <div>Ready</div>
+        </div>
+      </div>
+
+      {/* Action Button */}
+      <div className="text-center mb-4">
+        <button onClick={createProject} className="btn btn-primary">
+          ➕ Create New Project
+        </button>
+      </div>
+
+      {/* Projects List */}
+      <div className="card">
+        <h3 className="text-lg font-bold mb-4">
+          Projects ({projects.length})
+        </h3>
+        
+        {projects.length === 0 ? (
+          <div className="text-center" style={{ padding: '2rem', color: '#64748b' }}>
+            No projects yet. Create your first project to get started!
+          </div>
+        ) : (
+          <div>
+            {projects.map((project) => (
+              <div key={project.id} className="project-item">
+                <div>
+                  <div className="font-bold">{project.name}</div>
+                  <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                    Created: {project.created} • Files: {project.files.length} • ID: {project.id}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className={`status-badge status-${project.status}`}>
+                    {project.status.toUpperCase()}
+                  </span>
+                  <button 
+                    onClick={() => selectProject(project.id)}
+                    className="btn btn-sm"
+                  >
+                    📂 Open
+                  </button>
+                  <button 
+                    onClick={() => deleteProject(project.id)}
+                    className="btn btn-sm btn-danger"
+                  >
+                    🗑 Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderFileUpload = () => {
+    const project = getCurrentProject();
+    if (!project) return <div>No project selected</div>;
+
+    return (
+      <div>
+        <h2 className="text-2xl font-bold mb-4">📁 File Upload - {project.name}</h2>
+        
+        <div className="card mb-4">
+          <h3 className="text-lg font-bold mb-4">Upload Files</h3>
+          
+          <div className="upload-area">
+            <div className="upload-box">
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📁</div>
+              <h4>Drag & drop files here or click to browse</h4>
+              <p style={{ color: '#64748b', marginTop: '0.5rem' }}>
+                Supported formats: .pdb, .gro, .mol2, .sdf, .itp, .top, .mdp
+              </p>
+              <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button 
+                  onClick={() => simulateFileUpload(project.id, 'protein.pdb', '.pdb')}
+                  className="btn btn-sm"
+                >
+                  + Add PDB File
+                </button>
+                <button 
+                  onClick={() => simulateFileUpload(project.id, 'ligand.mol2', '.mol2')}
+                  className="btn btn-sm"
+                >
+                  + Add Ligand
+                </button>
+                <button 
+                  onClick={() => simulateFileUpload(project.id, 'topology.top', '.top')}
+                  className="btn btn-sm"
+                >
+                  + Add Topology
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* File List */}
+        {project.files.length > 0 && (
+          <div className="card">
+            <h3 className="text-lg font-bold mb-4">Uploaded Files ({project.files.length})</h3>
+            <div>
+              {project.files.map((file, index) => (
+                <div key={index} className="file-item">
+                  <div className="flex items-center gap-4">
+                    <div style={{ fontSize: '1.5rem' }}>
+                      {file.type === '.pdb' ? '🧬' : 
+                       file.type === '.mol2' ? '💊' : 
+                       file.type === '.top' ? '📋' : '📄'}
+                    </div>
+                    <div>
+                      <div className="font-bold">{file.name}</div>
+                      <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                        {file.type} • {(file.size / 1024).toFixed(1)} KB • {file.uploadedAt}
+                      </div>
+                    </div>
+                  </div>
+                  <span className={`file-type-badge file-type-${file.type.substring(1)}`}>
+                    {file.type}
+                  </span>
+                </div>
+              ))}
+            </div>
+            
+            {project.files.length > 0 && (
+              <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+                <button 
+                  onClick={() => setCurrentView('configure')}
+                  className="btn btn-primary"
+                >
+                  ⚙️ Configure System →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderConfigure = () => {
+    const project = getCurrentProject();
+    if (!project) return <div>No project selected</div>;
+
+    return (
+      <div>
+        <h2 className="text-2xl font-bold mb-4">⚙️ System Configuration - {project.name}</h2>
+        
+        {/* Force Field Selection */}
+        <div className="card mb-4">
+          <h3 className="text-lg font-bold mb-4">Force Field Selection</h3>
+          <p style={{ color: '#64748b', marginBottom: '1rem' }}>
+            Choose the appropriate force field for your molecular system:
+          </p>
+          
+          <div className="forcefield-grid">
+            {FORCEFIELDS.map((ff) => (
+              <div 
+                key={ff.id} 
+                className={`forcefield-card ${project.forcefield === ff.id ? 'selected' : ''}`}
+                onClick={() => updateProjectForcefield(project.id, ff.id)}
+              >
+                <div className="font-bold">{ff.name}</div>
+                <div style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.5rem' }}>
+                  {ff.description}
+                </div>
+                {project.forcefield === ff.id && (
+                  <div style={{ marginTop: '0.5rem', color: '#10b981', fontSize: '0.875rem' }}>
+                    ✅ Selected
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* System Parameters */}
+        <div className="card mb-4">
+          <h3 className="text-lg font-bold mb-4">Simulation Parameters</h3>
+          
+          <div className="parameter-grid">
+            <div className="parameter-item">
+              <label>Temperature (K)</label>
+              <input type="number" defaultValue="300" className="parameter-input" />
+            </div>
+            <div className="parameter-item">
+              <label>Pressure (bar)</label>
+              <input type="number" defaultValue="1.0" step="0.1" className="parameter-input" />
+            </div>
+            <div className="parameter-item">
+              <label>Time Step (ps)</label>
+              <input type="number" defaultValue="0.002" step="0.001" className="parameter-input" />
+            </div>
+            <div className="parameter-item">
+              <label>Total Time (ns)</label>
+              <input type="number" defaultValue="10" className="parameter-input" />
+            </div>
+          </div>
+        </div>
+
+        {/* System Validation */}
+        <div className="card">
+          <h3 className="text-lg font-bold mb-4">System Validation</h3>
+          
+          <div className="validation-grid">
+            <div className="validation-item">
+              <span className="validation-icon">
+                {project.files.some(f => f.type === '.pdb') ? '✅' : '❌'}
+              </span>
+              <span>Protein structure file</span>
+            </div>
+            <div className="validation-item">
+              <span className="validation-icon">
+                {project.forcefield ? '✅' : '❌'}
+              </span>
+              <span>Force field selected</span>
+            </div>
+            <div className="validation-item">
+              <span className="validation-icon">✅</span>
+              <span>Parameter validation</span>
+            </div>
+          </div>
+          
+          {project.files.length > 0 && project.forcefield && (
+            <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+              <button 
+                onClick={() => setCurrentView('simulation')}
+                className="btn btn-primary"
+              >
+                ▶️ Start Simulation →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderSimulation = () => {
+    const project = getCurrentProject();
+    if (!project) return <div>No project selected</div>;
+
+    return (
+      <div>
+        <h2 className="text-2xl font-bold mb-4">▶️ Simulation Control - {project.name}</h2>
+        
+        {/* Simulation Status */}
+        <div className="card mb-4">
+          <h3 className="text-lg font-bold mb-4">Simulation Status</h3>
+          
+          <div className="simulation-status">
+            <div className="status-icon">
+              {project.status === 'running' ? '🔄' : 
+               project.status === 'completed' ? '✅' : 
+               project.status === 'failed' ? '❌' : '⏸️'}
+            </div>
+            <div>
+              <div className="font-bold">
+                Status: {project.status.toUpperCase()}
+              </div>
+              <div style={{ color: '#64748b' }}>
+                {project.status === 'running' ? 'Simulation in progress...' :
+                 project.status === 'completed' ? 'Simulation completed successfully' :
+                 project.status === 'failed' ? 'Simulation failed - check logs' :
+                 'Ready to start simulation'}
+              </div>
+            </div>
+          </div>
+          
+          {project.status === 'running' && (
+            <div className="progress-bar">
+              <div className="progress-fill"></div>
+            </div>
+          )}
+        </div>
+
+        {/* Control Panel */}
+        <div className="card mb-4">
+          <h3 className="text-lg font-bold mb-4">Control Panel</h3>
+          
+          <div className="control-buttons">
+            <button 
+              onClick={() => startSimulation(project.id)}
+              disabled={project.status === 'running'}
+              className="btn btn-primary"
+            >
+              ▶️ Start Simulation
+            </button>
+            <button className="btn" disabled>
+              ⏸️ Pause
+            </button>
+            <button className="btn btn-danger" disabled>
+              ⏹️ Stop
+            </button>
+          </div>
+        </div>
+
+        {/* System Info */}
+        <div className="card">
+          <h3 className="text-lg font-bold mb-4">System Information</h3>
+          
+          <div className="info-grid">
+            <div className="info-item">
+              <strong>Force Field:</strong> {project.forcefield || 'Not selected'}
+            </div>
+            <div className="info-item">
+              <strong>Files:</strong> {project.files.length}
+            </div>
+            <div className="info-item">
+              <strong>Temperature:</strong> 300 K
+            </div>
+            <div className="info-item">
+              <strong>Pressure:</strong> 1.0 bar
+            </div>
+          </div>
+          
+          {project.status === 'completed' && (
+            <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+              <button 
+                onClick={() => setCurrentView('analysis')}
+                className="btn btn-primary"
+              >
+                📈 View Results →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAnalysis = () => {
+    const project = getCurrentProject();
+    if (!project) return <div>No project selected</div>;
+
+    return (
+      <div>
+        <h2 className="text-2xl font-bold mb-4">📈 Analysis Results - {project.name}</h2>
+        
+        {project.status !== 'completed' ? (
+          <div className="card text-center">
+            <div style={{ padding: '3rem', color: '#64748b' }}>
+              <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>⏳</div>
+              <h3>Analysis Not Available</h3>
+              <p>Complete the simulation to view analysis results.</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Analysis Summary */}
+            <div className="card mb-4">
+              <h3 className="text-lg font-bold mb-4">Analysis Summary</h3>
+              
+              <div className="analysis-grid">
+                <div className="analysis-card">
+                  <div className="analysis-value">0.18 nm</div>
+                  <div className="analysis-label">Average RMSD</div>
+                </div>
+                <div className="analysis-card">
+                  <div className="analysis-value">-1300 kJ/mol</div>
+                  <div className="analysis-label">Average Energy</div>
+                </div>
+                <div className="analysis-card">
+                  <div className="analysis-value">0.28 nm</div>
+                  <div className="analysis-label">Max RMSF</div>
+                </div>
+                <div className="analysis-card">
+                  <div className="analysis-value">5000</div>
+                  <div className="analysis-label">Frames</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Analysis Tools */}
+            <div className="card">
+              <h3 className="text-lg font-bold mb-4">Analysis Tools</h3>
+              
+              <div className="tools-grid">
+                <button className="tool-card">
+                  <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📊</div>
+                  <div className="font-bold">RMSD Plot</div>
+                  <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                    Root mean square deviation over time
+                  </div>
+                </button>
+                
+                <button className="tool-card">
+                  <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚡</div>
+                  <div className="font-bold">Energy Analysis</div>
+                  <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                    Potential and kinetic energy plots
+                  </div>
+                </button>
+                
+                <button className="tool-card">
+                  <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🌊</div>
+                  <div className="font-bold">RMSF Analysis</div>
+                  <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                    Root mean square fluctuation per residue
+                  </div>
+                </button>
+                
+                <button className="tool-card">
+                  <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🧬</div>
+                  <div className="font-bold">3D Viewer</div>
+                  <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                    Interactive molecular visualization
+                  </div>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderCurrentView = () => {
+    switch (currentView) {
+      case 'dashboard':
+        return renderDashboard();
+      case 'upload':
+        return renderFileUpload();
+      case 'configure':
+        return renderConfigure();
+      case 'simulation':
+        return renderSimulation();
+      case 'analysis':
+        return renderAnalysis();
+      default:
+        return renderDashboard();
+    }
   };
 
   return (
@@ -124,57 +735,14 @@ function App() {
         </div>
       </header>
 
+      {/* Navigation */}
+      {renderNavigation()}
+
       {/* Main Content */}
       <main className="container">
-        
-        {/* Welcome Section */}
-        <div className="text-center mb-4">
-          <h2 className="text-2xl font-bold mb-2">
-            Molecular Dynamics Simulation Platform
-          </h2>
-          <p className="text-lg" style={{ color: '#64748b' }}>
-            A modern web interface for GROMACS simulations
-          </p>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="card-grid">
-          <div className="card text-center">
-            <div className="text-2xl font-bold" style={{ color: '#3b82f6' }}>
-              {projects.length}
-            </div>
-            <div>Total Projects</div>
-          </div>
-          <div className="card text-center">
-            <div className="text-2xl font-bold" style={{ color: '#10b981' }}>
-              {getStatsCount('completed')}
-            </div>
-            <div>Completed</div>
-          </div>
-          <div className="card text-center">
-            <div className="text-2xl font-bold" style={{ color: '#f59e0b' }}>
-              {getStatsCount('running')}
-            </div>
-            <div>Running</div>
-          </div>
-          <div className="card text-center">
-            <div className="text-2xl font-bold" style={{ color: '#6b7280' }}>
-              {getStatsCount('created')}
-            </div>
-            <div>Ready</div>
-          </div>
-        </div>
-
-        {/* Action Button */}
-        <div className="text-center mb-4">
-          <button onClick={createProject} className="btn">
-            ➕ Create New Project
-          </button>
-        </div>
-
         {/* API Status Alert */}
-        {apiStatus.status === 'connected' && (
-          <div className="alert alert-success">
+        {apiStatus.status === 'connected' && currentView === 'dashboard' && (
+          <div className="alert alert-success mb-4">
             <strong>✅ Backend Connected!</strong> API is responding at{' '}
             <a href="http://localhost:8000" target="_blank" rel="noopener noreferrer">
               http://localhost:8000
@@ -183,105 +751,15 @@ function App() {
         )}
 
         {apiStatus.status === 'disconnected' && (
-          <div className="alert alert-error">
+          <div className="alert alert-error mb-4">
             <strong>❌ Backend Disconnected</strong><br />
             {apiStatus.message}<br />
             Make sure the backend server is running on port 8000.
           </div>
         )}
 
-        {/* Projects List */}
-        <div className="card">
-          <h3 className="text-lg font-bold mb-4">
-            Projects ({projects.length})
-          </h3>
-          
-          {projects.length === 0 ? (
-            <div className="text-center" style={{ padding: '2rem', color: '#64748b' }}>
-              No projects yet. Create your first project to get started!
-            </div>
-          ) : (
-            <div>
-              {projects.map((project) => (
-                <div key={project.id} className="project-item">
-                  <div>
-                    <div className="font-bold">{project.name}</div>
-                    <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
-                      Created: {project.created} • ID: {project.id}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className={`status-badge status-${project.status}`}>
-                      {project.status.toUpperCase()}
-                    </span>
-                    {project.status === 'created' && (
-                      <button 
-                        onClick={() => simulateRun(project.id)}
-                        style={{ 
-                          background: '#10b981', 
-                          color: 'white', 
-                          border: 'none', 
-                          padding: '0.25rem 0.75rem', 
-                          borderRadius: '4px', 
-                          cursor: 'pointer',
-                          fontSize: '0.75rem'
-                        }}
-                      >
-                        ▶ Run
-                      </button>
-                    )}
-                    <button 
-                      onClick={() => deleteProject(project.id)}
-                      style={{ 
-                        background: '#ef4444', 
-                        color: 'white', 
-                        border: 'none', 
-                        padding: '0.25rem 0.75rem', 
-                        borderRadius: '4px', 
-                        cursor: 'pointer',
-                        fontSize: '0.75rem'
-                      }}
-                    >
-                      🗑 Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* API Links */}
-        <div className="alert alert-info">
-          <strong>🔗 API Access:</strong><br />
-          • Backend API: <a href="http://localhost:8000" target="_blank" rel="noopener noreferrer">http://localhost:8000</a><br />
-          • API Documentation: <a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer">http://localhost:8000/docs</a><br />
-          • Interactive API: <a href="http://localhost:8000/redoc" target="_blank" rel="noopener noreferrer">http://localhost:8000/redoc</a>
-        </div>
-
-        {/* Feature Info */}
-        <div className="card">
-          <h3 className="text-lg font-bold mb-2">🚀 Next Steps</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem' }}>
-            <div>
-              <strong>1. Upload Files</strong><br />
-              <small>Add protein structures (.pdb, .gro)</small>
-            </div>
-            <div>
-              <strong>2. Configure</strong><br />
-              <small>Set force fields and parameters</small>
-            </div>
-            <div>
-              <strong>3. Run Simulations</strong><br />
-              <small>Execute GROMACS workflows</small>
-            </div>
-            <div>
-              <strong>4. Analyze Results</strong><br />
-              <small>View plots and export data</small>
-            </div>
-          </div>
-        </div>
-
+        {/* Current View Content */}
+        {renderCurrentView()}
       </main>
 
       {/* Footer */}
